@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   createOrUpdateCoursePlan,
+  updateCoursePlan,
   getMyCoursePlans,
   getCoursePlanById,
   updateWeekProgress,
@@ -17,6 +18,7 @@ router.get('/my', authorize('teacher'), getMyCoursePlans);
 router.get('/all', authorize('admin'), getAllCoursePlans);
 router.get('/:id', getCoursePlanById);
 router.post('/', authorize('teacher', 'admin'), createOrUpdateCoursePlan);
+router.put('/:id', authorize('teacher'), updateCoursePlan);
 router.put(
   '/:id/week/:weekNumber',
   authorize('teacher'),

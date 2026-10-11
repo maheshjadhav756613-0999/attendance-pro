@@ -2,9 +2,10 @@ import express from 'express';
 import {
   getNotices,
   createNotice,
+  updateNotice,
   deleteNotice,
-} from '../../../backend/src/controllers/noticeController.js';
-import { protect, authorize } from '../../../backend/src/middleware/auth.js';
+} from '../controllers/noticeController.js';
+import { protect, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -14,6 +15,7 @@ router.route('/')
   .get(getNotices)
   .post(authorize('admin'), createNotice);
 
+router.put('/:id', authorize('admin'), updateNotice);
 router.delete('/:id', authorize('admin'), deleteNotice);
 
 export default router;

@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   createRemedial,
+  updateRemedial,
   getMyRemedials,
   getAllRemedials,
   markAttendance,
@@ -16,6 +17,7 @@ router.use(protect);
 
 router.post('/', authorize('teacher'), createRemedial);
 router.get('/my', authorize('teacher'), getMyRemedials);
+router.put('/:id', authorize('teacher'), updateRemedial);
 router.get('/all', authorize('admin'), getAllRemedials);
 router.get('/naac-report', authorize('admin'), getRemedialReport);
 router.put('/:id/mark', authorize('teacher'), markAttendance);

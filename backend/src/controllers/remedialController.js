@@ -1,5 +1,6 @@
 import RemedialClass from '../models/RemedialClass.js';
 import Student from '../models/Student.js';
+import mongoose from 'mongoose';
 
 // @desc    Create remedial class
 // @route   POST /api/remedial
@@ -87,6 +88,125 @@ export const getMyRemedials = async (req, res) => {
       data: list,
     });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Update a scheduled remedial class
+// @route   PUT /api/remedial/:id
+export const updateRemedial = async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid remedial class ID',
+      });
+    }
+
+    const remedial = await RemedialClass.findOne({
+      _id: req.params.id,
+      teacherId: req.user.id,
+    });
+
+    if (!remedial) {
+      return res.status(404).json({
+        success: false,
+        message: 'Remedial class सापडला नाही',
+      });
+    }
+
+    if (remedial.status !== 'scheduled') {
+      return res.status(400).json({
+        success: false,
+        message: 'फक्त scheduled class update करता येतो',
+      });
+    }
+
+    const {
+      subjectId,
+      subjectName,
+      date,
+      startTime,
+      endTime,
+      room,
+      reason,
+      studentIds,
+      notes,
+    } = req.body;
+
+    if (!subjectId || !date || !startTime || !endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'Subject, date आणि वेळ आवश्यक आहे',
+      });
+    }
+
+    if (!Array.isArray(studentIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'विद्यार्थ्यांची यादी आवश्यक आहे',
+      });
+    }
+
+    const selectedStudentIds = [...new Set(studentIds.map(String))];
+    if (selectedStudentIds.some((id) => !mongoose.isValidObjectId(id))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid student ID',
+      });
+    }
+
+    const selectedStudents = selectedStudentIds.length
+      ? await Student.find({
+          _id: { $in: selectedStudentIds },
+          classId: remedial.classId,
+          divisionName: remedial.divisionName,
+        })
+      : [];
+
+    if (selectedStudents.length !== selectedStudentIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'निवडलेले विद्यार्थी या class/division मधील नाहीत',
+      });
+    }
+
+    const existingAttendance = new Map(
+      remedial.students.map((student) => [
+        student.studentId.toString(),
+        student.present,
+      ])
+    );
+    remedial.subjectId = subjectId;
+    remedial.subjectName = subjectName;
+    remedial.date = new Date(date);
+    remedial.startTime = startTime;
+    remedial.endTime = endTime;
+    remedial.room = room;
+    remedial.reason = reason;
+    remedial.notes = notes;
+    remedial.students = selectedStudents.map((student) => ({
+      studentId: student._id,
+      name: student.name,
+      rollNumber: student.rollNumber,
+      present: existingAttendance.get(student._id.toString()) || false,
+    }));
+
+    await remedial.save();
+
+    res.status(200).json({
+      success: true,
+      message: '✅ Remedial class updated',
+      data: remedial,
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError' || error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    console.error('🔥 UPDATE REMEDIAL ERROR:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -1,6 +1,7 @@
 
 import CoursePlan from '../models/CoursePlan.js';
 import User from '../models/User.js';
+import mongoose from 'mongoose';
 
 // Helper: Teacher access check
 const hasTeacherAccess = (teacher, classId, divisionName, subjectId) => {
@@ -115,6 +116,128 @@ export const createOrUpdateCoursePlan = async (req, res) => {
     });
   } catch (error) {
     console.error('Course plan error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Update an existing course plan
+// @route   PUT /api/course-plan/:id
+export const updateCoursePlan = async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid course plan ID',
+      });
+    }
+
+    const plan = await CoursePlan.findOne({
+      _id: req.params.id,
+      teacherId: req.user.id,
+      isActive: true,
+    });
+
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Course Plan सापडला नाही',
+      });
+    }
+
+    const { title, semester, weeks } = req.body;
+    if (
+      !Array.isArray(weeks) ||
+      weeks.length === 0 ||
+      weeks.some((week) => !week || typeof week !== 'object')
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'कमीत कमी 1 week आवश्यक आहे',
+      });
+    }
+
+    const weekNumbers = weeks.map((week) => Number(week.weekNumber));
+    if (
+      weeks.some(
+        (week, index) =>
+          !Number.isInteger(weekNumbers[index]) ||
+          weekNumbers[index] < 1 ||
+          typeof week.topic !== 'string' ||
+          !week.topic.trim() ||
+          !Number.isInteger(Number(week.plannedLectures)) ||
+          Number(week.plannedLectures) < 0 ||
+          !Number.isFinite(Number(week.plannedLectures)) ||
+          !Number.isFinite(Number(week.plannedHours ?? 0)) ||
+          Number(week.plannedHours ?? 0) < 0 ||
+          weekNumbers.indexOf(weekNumbers[index]) !== index
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Weeks मध्ये वैध, वेगळे week number, topic आणि lectures द्या',
+      });
+    }
+
+    const existingWeeks = new Map(
+      plan.weeks.map((week) => [week.weekNumber, week])
+    );
+    plan.weeks = weeks.map((week, index) => {
+      const previous = existingWeeks.get(weekNumbers[index]);
+      const plannedLectures = Number(week.plannedLectures);
+      const completedLectures = Math.min(
+        previous?.completedLectures || 0,
+        plannedLectures
+      );
+
+      return {
+        weekNumber: weekNumbers[index],
+        topic: week.topic.trim(),
+        subtopics: Array.isArray(week.subtopics)
+          ? week.subtopics.filter((subtopic) => typeof subtopic === 'string')
+          : [],
+        plannedHours: Number(week.plannedHours) || 0,
+        plannedLectures,
+        completedLectures,
+        completedHours: previous?.completedHours || 0,
+        status:
+          completedLectures >= plannedLectures
+            ? 'completed'
+            : completedLectures > 0
+              ? 'in-progress'
+              : 'pending',
+        notes: previous?.notes || '',
+      };
+    });
+    if (title !== undefined) plan.title = title;
+    if (semester !== undefined) plan.semester = semester;
+    plan.totalLectures = plan.weeks.reduce(
+      (sum, week) => sum + week.plannedLectures,
+      0
+    );
+    plan.totalHours = plan.weeks.reduce(
+      (sum, week) => sum + week.plannedHours,
+      0
+    );
+
+    await plan.save();
+    const populated = await CoursePlan.findById(plan._id)
+      .populate('classId', 'name academicYear')
+      .populate('subjectId', 'name code')
+      .populate('schoolId', 'name code');
+
+    res.status(200).json({
+      success: true,
+      message: '✅ Course Plan updated',
+      data: populated,
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError' || error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    console.error('Course plan update error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
