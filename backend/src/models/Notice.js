@@ -26,6 +26,11 @@ const noticeSchema = new mongoose.Schema(
       enum: ['admin', 'teacher', 'student', 'parent'],
       default: ['teacher', 'student', 'parent'],
     },
+    schoolIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: 'School',
+      default: [],
+    },
     schoolId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'School',

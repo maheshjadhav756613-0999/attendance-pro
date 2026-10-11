@@ -1,3 +1,9 @@
+import {
+  sendPushToRole,
+  sendPushToUser,
+  sendPushToRoleInSchools,
+} from '../services/pushService.js';
+
 // ============================================
 // 🔔 TRIGGER 8: Repeated Absence Alert (#2)
 // ============================================
@@ -278,12 +284,17 @@ export const notifyNewNotice = async (notice) => {
     };
 
     const emoji = priorityEmoji[notice.priority] || '📢';
+    const targetAudience = notice.targetAudience || ['teacher', 'student', 'parent'];
+    const schoolIds = notice.schoolIds?.length
+      ? notice.schoolIds
+      : notice.schoolId
+        ? [notice.schoolId]
+        : [];
 
-    // Target audience ला पाठव
-    for (const role of notice.targetAudience) {
-      if (role === 'admin') continue; // Admin नेच पाठवलं
+    for (const role of targetAudience) {
+      if (role === 'admin') continue;
 
-      await sendPushToRole(role, {
+      const payload = {
         title: `${emoji} New Notice: ${notice.title}`,
         body: notice.content.substring(0, 150) + (notice.content.length > 150 ? '...' : ''),
         icon: '/logo192.png',
@@ -297,10 +308,16 @@ export const notifyNewNotice = async (notice) => {
           noticeId: notice._id,
         },
         requireInteraction: notice.priority === 'Urgent',
-      });
+      };
+
+      if (schoolIds.length > 0) {
+        await sendPushToRoleInSchools(role, schoolIds, payload);
+      } else {
+        await sendPushToRole(role, payload);
+      }
     }
 
-    console.log(`📢 Notice sent to: ${notice.targetAudience.join(', ')}`);
+    console.log(`📢 Notice sent to: ${targetAudience.join(', ')}${schoolIds.length ? ` for ${schoolIds.length} school(s)` : ' across all schools'}`);
   } catch (error) {
     console.error('Notice notify error:', error);
   }

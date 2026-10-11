@@ -1,5 +1,7 @@
 import webPush from 'web-push';
 import PushSubscription from '../models/PushSubscription.js';
+import User from '../models/User.js';
+import Student from '../models/Student.js';
 
 let configuredVapidDetails;
 
@@ -64,6 +66,56 @@ const sendToSubscriptions = async (subscriptions, payload) => {
   );
 };
 
+const normalizeSchoolIds = (schoolIds) => {
+  const normalized = Array.isArray(schoolIds)
+    ? schoolIds
+    : schoolIds
+      ? [schoolIds]
+      : [];
+
+  return [...new Set(normalized.filter(Boolean).map((id) => String(id)))];
+};
+
+const getRoleUserIdsForSchoolIds = async (role, schoolIds) => {
+  const normalized = normalizeSchoolIds(schoolIds);
+  if (!normalized.length || role === 'admin') return [];
+
+  if (role === 'teacher') {
+    const teachers = await User.find({
+      role: 'teacher',
+      isActive: true,
+      assignments: {
+        $elemMatch: {
+          schoolId: { $in: normalized },
+        },
+      },
+    }).select('_id');
+    return teachers.map((user) => user._id.toString());
+  }
+
+  if (role === 'student') {
+    const students = await Student.find({
+      schoolId: { $in: normalized },
+      isActive: true,
+    }).select('userId');
+    return students
+      .map((student) => student.userId?.toString())
+      .filter(Boolean);
+  }
+
+  if (role === 'parent') {
+    const students = await Student.find({
+      schoolId: { $in: normalized },
+      isActive: true,
+    }).select('parentUserId');
+    return students
+      .map((student) => student.parentUserId?.toString())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
 export const sendPushToUser = async (userId, payload) => {
   const subscriptions = await PushSubscription.find({
     userId,
@@ -82,9 +134,26 @@ export const sendPushToRole = async (role, payload) => {
   return sendToSubscriptions(subscriptions, payload);
 };
 
+export const sendPushToRoleInSchools = async (role, schoolIds, payload) => {
+  const normalized = normalizeSchoolIds(schoolIds);
+
+  if (!normalized.length) {
+    return sendPushToRole(role, payload);
+  }
+
+  const userIds = await getRoleUserIdsForSchoolIds(role, normalized);
+  return sendPushToUsers(userIds, payload);
+};
+
 export const sendPushToUsers = async (userIds, payload) => {
+  const uniqueUserIds = [...new Set((userIds || []).filter(Boolean).map((id) => String(id)))];
+
+  if (!uniqueUserIds.length) {
+    return { sent: 0, expired: 0 };
+  }
+
   const subscriptions = await PushSubscription.find({
-    userId: { $in: userIds },
+    userId: { $in: uniqueUserIds },
     isActive: true,
   }).select('_id subscription');
 
