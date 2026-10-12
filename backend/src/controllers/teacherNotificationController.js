@@ -2,6 +2,7 @@ import Lecture from '../models/Lecture.js';
 import Attendance from '../models/Attendance.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
+import Leave from '../models/Leave.js';
 
 // ============================================
 // @desc    Teacher for notifications
@@ -168,6 +169,64 @@ export const getTeacherNotifications = async (req, res) => {
         time: new Date(),
         priority: 4,
         link: '/teacher/timetable',
+      });
+    }
+
+    // ============================================
+    // 5. 📝 Pending Leave Requests (Class Teacher)
+    // ============================================
+    const classTeacherAssignments = (teacher?.assignments || []).filter(
+      (a) => a.role === 'ClassTeacher'
+    );
+
+    if (classTeacherAssignments.length > 0) {
+      const classIds = classTeacherAssignments.map(
+        (a) => a.classId?._id || a.classId
+      );
+
+      const pendingLeaves = await Leave.find({
+        classId: { $in: classIds },
+        status: 'Pending',
+        isActive: true,
+      })
+        .populate('studentId', 'name studentId rollNumber')
+        .populate('classId', 'name')
+        .sort({ createdAt: -1 })
+        .limit(10);
+
+      // Filter by class teacher
+      const filteredLeaves = pendingLeaves.filter((leave) => {
+        const leaveClassId = leave.classId?._id?.toString();
+        return classTeacherAssignments.some((a) => {
+          const aClassId = (a.classId?._id || a.classId)?.toString();
+          return (
+            aClassId === leaveClassId &&
+            a.divisionName === leave.divisionName
+          );
+        });
+      });
+
+      filteredLeaves.forEach((leave) => {
+        notifications.push({
+          id: `leave-${leave._id}`,
+          type: 'warning',
+          icon: '📝',
+          title: `${leave.studentId?.name} ने leave apply केली`,
+          message: `${leave.totalDays} दिवस • ${leave.leaveType} • ${
+            leave.reason?.substring(0, 50) || ''
+          }${leave.reason?.length > 50 ? '...' : ''}`,
+          time: leave.createdAt,
+          priority: 1,
+          link: '/teacher/leaves',
+          meta: {
+            studentName: leave.studentId?.name,
+            studentCode: leave.studentId?.studentId,
+            fromDate: leave.fromDate,
+            toDate: leave.toDate,
+            leaveType: leave.leaveType,
+            totalDays: leave.totalDays,
+          },
+        });
       });
     }
 

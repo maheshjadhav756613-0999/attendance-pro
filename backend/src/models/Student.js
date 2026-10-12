@@ -124,23 +124,23 @@ const studentSchema = new mongoose.Schema(
       default: false,
     },
 
+    // ✅ Login Accounts (User Model References)
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    parentUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+
     addedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     },
 
-    // ✅ Student चा login account
-userId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: 'User',
-  default: null,
-},
-// ✅ Parent चा login account
-parentUserId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: 'User',
-  default: null,
-},
     isActive: {
       type: Boolean,
       default: true,
@@ -149,7 +149,7 @@ parentUserId: {
   { timestamps: true }
 );
 
-// Unique constraints per class+division+academicYear
+// Unique constraints
 studentSchema.index(
   { classId: 1, divisionName: 1, rollNumber: 1, academicYear: 1 },
   { unique: true }

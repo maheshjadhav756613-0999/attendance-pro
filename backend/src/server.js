@@ -44,6 +44,8 @@ import parentCommRoutes from './routes/parentCommRoutes.js';
 import undertakingRoutes from './routes/undertakingRoutes.js';
 import remedialRoutes from './routes/remedialRoutes.js';
 import examEligibilityRoutes from './routes/examEligibilityRoutes.js';
+import studentAuthRoutes from './routes/studentAuthRoutes.js';
+import leaveRoutes from './routes/leaveRoutes.js';
 // ✅ new
 
 connectDB();
@@ -121,6 +123,8 @@ app.use('/api/parent-communication', parentCommRoutes);
 app.use('/api/undertaking', undertakingRoutes);
 app.use('/api/remedial', remedialRoutes);
 app.use('/api/exam-eligibility', examEligibilityRoutes);
+app.use('/api/student-auth', studentAuthRoutes);
+app.use('/api/leaves', leaveRoutes);
 
 
 app.get('/', (req, res) => {

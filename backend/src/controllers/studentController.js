@@ -55,13 +55,12 @@ const generateStudentId = async (classId, divisionName, academicYear) => {
     return Math.max(max, match ? parseInt(match[1]) : 0);
   }, 0);
 
-  const nextNum = maxNum + 1;
-  return `${prefix}${String(nextNum).padStart(3, '0')}`;
+  return `${prefix}${String(maxNum + 1).padStart(3, '0')}`;
 };
 
 // ============================================
-// HELPER 3: ✅ Generate Unique Student Password
-// Format: First 3 letters of Name (upper) + DOB Year
+// HELPER 3: Generate Unique Student Password
+// Format: First 3 letters of Name + DOB Year
 // उदा: Rahul Patil (2004) → RAH2004
 // ============================================
 const generateStudentPassword = (studentName, dateOfBirth) => {
@@ -83,7 +82,7 @@ const generateStudentPassword = (studentName, dateOfBirth) => {
 };
 
 // ============================================
-// HELPER 4: ✅ Generate Unique Parent Password
+// HELPER 4: Generate Unique Parent Password
 // Format: First 3 letters of Parent Name + Last 4 digits of Phone
 // उदा: Suresh Patil (9876543210) → SUR3210
 // ============================================
@@ -100,28 +99,38 @@ const generateParentPassword = (parentName, parentPhone) => {
   return `${namePrefix}${phoneSuffix}`;
 };
 
+// ============================================
+// HELPER 5: Link Parent Account (Multi-child support)
+// ============================================
 const linkParentAccount = async (student, parentUser) => {
   student.parentUserId = parentUser._id;
 
-  let parent = await Parent.findOne({ email: parentUser.email });
+  let parent = await Parent.findOne({ userId: parentUser._id });
+
   if (!parent) {
     parent = new Parent({
       userId: parentUser._id,
       name: parentUser.name,
       email: parentUser.email,
       phone: parentUser.phone,
+      children: [],
     });
   }
 
-  parent.userId = parentUser._id;
-  if (!parent.children.some((child) => child.studentId?.equals(student._id))) {
+  // Duplicate check
+  const alreadyLinked = parent.children.some(
+    (child) => child.studentId?.toString() === student._id.toString()
+  );
+
+  if (!alreadyLinked) {
     parent.children.push({ studentId: student._id });
   }
+
   await parent.save();
 };
 
 // ============================================
-// @desc    Students मिळवा (class + division)
+// @desc    Students मिळवा
 // @route   GET /api/students
 // ============================================
 export const getStudents = async (req, res) => {
@@ -157,7 +166,6 @@ export const getStudents = async (req, res) => {
 
 // ============================================
 // @desc    एक student मिळवा
-// @route   GET /api/students/:id
 // ============================================
 export const getStudent = async (req, res) => {
   try {
@@ -180,7 +188,6 @@ export const getStudent = async (req, res) => {
 
 // ============================================
 // @desc    Next Student ID Preview
-// @route   GET /api/students/next-id
 // ============================================
 export const getNextStudentId = async (req, res) => {
   try {
@@ -204,14 +211,12 @@ export const getNextStudentId = async (req, res) => {
       data: { studentId: nextId },
     });
   } catch (error) {
-    console.error('🔥 NEXT STUDENT ID ERROR:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
 // ============================================
 // @desc    Student create (single) — with unique passwords
-// @route   POST /api/students
 // ============================================
 export const createStudent = async (req, res) => {
   try {
@@ -277,11 +282,7 @@ export const createStudent = async (req, res) => {
     // Auto Student ID
     let finalStudentId = studentId?.toUpperCase().trim();
     if (!finalStudentId) {
-      finalStudentId = await generateStudentId(
-        classId,
-        divUpper,
-        academicYear
-      );
+      finalStudentId = await generateStudentId(classId, divUpper, academicYear);
     }
 
     // Duplicate checks
@@ -295,7 +296,7 @@ export const createStudent = async (req, res) => {
     if (dupRoll) {
       return res.status(400).json({
         success: false,
-        message: `Roll No ${rollNumber} आधीच आहे (या class मध्ये)`,
+        message: `Roll No ${rollNumber} आधीच आहे`,
       });
     }
 
@@ -309,7 +310,7 @@ export const createStudent = async (req, res) => {
     if (dupSeat) {
       return res.status(400).json({
         success: false,
-        message: `Seat No ${seatNumber} आधीच आहे (या class मध्ये)`,
+        message: `Seat No ${seatNumber} आधीच आहे`,
       });
     }
 
@@ -323,7 +324,7 @@ export const createStudent = async (req, res) => {
     if (dupPrn) {
       return res.status(400).json({
         success: false,
-        message: `PRN ${prnNumber} आधीच आहे (या class मध्ये)`,
+        message: `PRN ${prnNumber} आधीच आहे`,
       });
     }
 
@@ -337,7 +338,7 @@ export const createStudent = async (req, res) => {
     if (dupStudentId) {
       return res.status(400).json({
         success: false,
-        message: `Student ID ${finalStudentId} आधीच आहे (या class मध्ये)`,
+        message: `Student ID ${finalStudentId} आधीच आहे`,
       });
     }
 
@@ -366,22 +367,18 @@ export const createStudent = async (req, res) => {
 
     await student.save();
 
-    // ✅ Track credentials
     const credentialsResponse = {
       student: null,
       parent: null,
     };
 
-    // ============================================
-    // ✅ Parent login auto-create (Unique Password)
-    // ============================================
+    // ✅ Parent login auto-create
     if (parentEmail && parentEmail.trim()) {
       try {
         const parentEmailClean = parentEmail.toLowerCase().trim();
         const existingParent = await User.findOne({ email: parentEmailClean });
 
         if (!existingParent) {
-          // ✅ Generate unique password
           const parentPassword = generateParentPassword(
             parentName,
             parentPhone || mobile
@@ -394,9 +391,11 @@ export const createStudent = async (req, res) => {
             role: 'parent',
             phone: parentPhone?.trim() || mobile?.trim() || '',
             studentId: student._id,
+            addedBy: teacher._id,
+            addedByRole: 'teacher',
           });
-          await linkParentAccount(student, parentUser);
 
+          await linkParentAccount(student, parentUser);
           student.hasParentLogin = true;
 
           credentialsResponse.parent = {
@@ -413,9 +412,7 @@ export const createStudent = async (req, res) => {
       }
     }
 
-    // ============================================
-    // ✅ Student login auto-create (Unique Password)
-    // ============================================
+    // ✅ Student login auto-create
     try {
       const studentEmail =
         email?.trim().toLowerCase() ||
@@ -424,7 +421,6 @@ export const createStudent = async (req, res) => {
       const existingStudentUser = await User.findOne({ email: studentEmail });
 
       if (!existingStudentUser) {
-        // ✅ Generate unique password
         const studentPassword = generateStudentPassword(name, dateOfBirth);
 
         const studentUser = await User.create({
@@ -433,9 +429,11 @@ export const createStudent = async (req, res) => {
           password: studentPassword,
           role: 'student',
           studentId: student._id,
+          addedBy: teacher._id,
+          addedByRole: 'teacher',
         });
-        student.userId = studentUser._id;
 
+        student.userId = studentUser._id;
         student.hasStudentLogin = true;
 
         credentialsResponse.student = {
@@ -481,16 +479,12 @@ export const createStudent = async (req, res) => {
       });
     }
 
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 // ============================================
-// @desc    Bulk students create — with unique passwords
-// @route   POST /api/students/bulk
+// @desc    Bulk students create
 // ============================================
 export const createBulkStudents = async (req, res) => {
   try {
@@ -604,7 +598,7 @@ export const createBulkStudents = async (req, res) => {
 
         const creds = { student: null, parent: null };
 
-        // ✅ Parent login
+        // Parent login
         if (s.parentEmail && s.parentEmail.trim()) {
           try {
             const parentEmailClean = s.parentEmail.toLowerCase().trim();
@@ -625,9 +619,11 @@ export const createBulkStudents = async (req, res) => {
                 role: 'parent',
                 phone: s.parentPhone?.trim() || s.mobile?.trim() || '',
                 studentId: student._id,
+                addedBy: teacher._id,
+                addedByRole: 'teacher',
               });
-              await linkParentAccount(student, parentUser);
 
+              await linkParentAccount(student, parentUser);
               student.hasParentLogin = true;
 
               creds.parent = {
@@ -644,7 +640,7 @@ export const createBulkStudents = async (req, res) => {
           }
         }
 
-        // ✅ Student login
+        // Student login
         try {
           const studentEmail =
             s.email?.trim().toLowerCase() ||
@@ -664,9 +660,11 @@ export const createBulkStudents = async (req, res) => {
               password: studentPassword,
               role: 'student',
               studentId: student._id,
+              addedBy: teacher._id,
+              addedByRole: 'teacher',
             });
-            student.userId = studentUser._id;
 
+            student.userId = studentUser._id;
             student.hasStudentLogin = true;
 
             creds.student = {
@@ -711,7 +709,6 @@ export const createBulkStudents = async (req, res) => {
 
 // ============================================
 // @desc    Student update
-// @route   PUT /api/students/:id
 // ============================================
 export const updateStudent = async (req, res) => {
   try {
@@ -844,7 +841,6 @@ export const updateStudent = async (req, res) => {
 
 // ============================================
 // @desc    Student delete (HARD DELETE)
-// @route   DELETE /api/students/:id
 // ============================================
 export const deleteStudent = async (req, res) => {
   try {
@@ -876,14 +872,44 @@ export const deleteStudent = async (req, res) => {
       studentId: student._id,
     });
 
-    // ✅ Parent/Student login delete
-    await User.deleteMany({ studentId: student._id });
+    // Leave delete
+    const Leave = (await import('../models/Leave.js')).default;
+    await Leave.deleteMany({ studentId: student._id });
+
+    // ✅ Parent links काढ
+    const parent = await Parent.findOne({
+      'children.studentId': student._id,
+    });
+    if (parent) {
+      parent.children = parent.children.filter(
+        (c) => c.studentId.toString() !== student._id.toString()
+      );
+      if (parent.children.length === 0) {
+        // Parent चा User account delete
+        await User.findByIdAndDelete(parent.userId);
+        await Parent.findByIdAndDelete(parent._id);
+      } else {
+        await parent.save();
+      }
+    }
+
+    // ✅ Student + Parent User accounts delete
+    if (student.userId) {
+      await User.findByIdAndDelete(student.userId);
+    }
+    if (student.parentUserId) {
+      // जर parent चा दुसरा child असेल तर User delete नको
+      const parentDoc = await Parent.findOne({ userId: student.parentUserId });
+      if (!parentDoc || parentDoc.children.length === 0) {
+        await User.findByIdAndDelete(student.parentUserId);
+      }
+    }
 
     // Student delete
     await Student.findByIdAndDelete(req.params.id);
 
     console.log(
-      `🗑️ Student HARD DELETED: ${student.name} (${attendanceDeleted.deletedCount} attendance records, logins deleted)`
+      `🗑️ Student HARD DELETED: ${student.name} (${attendanceDeleted.deletedCount} attendance records, all logins)`
     );
 
     res.status(200).json({
@@ -897,8 +923,7 @@ export const deleteStudent = async (req, res) => {
 };
 
 // ============================================
-// ✅ BONUS: Reset Student/Parent Password
-// @desc    Teacher can reset student/parent passwords
+// @desc    Reset Student/Parent Passwords
 // @route   POST /api/students/:id/reset-passwords
 // ============================================
 export const resetStudentPasswords = async (req, res) => {
@@ -928,16 +953,8 @@ export const resetStudentPasswords = async (req, res) => {
     const credentials = { student: null, parent: null };
 
     // Reset Student Password
-    if (student.hasStudentLogin) {
-      const studentEmail =
-        student.email?.trim().toLowerCase() ||
-        `${student.studentId.toLowerCase()}@student.com`;
-
-      const studentUser = await User.findOne({
-        email: studentEmail,
-        role: 'student',
-      });
-
+    if (student.hasStudentLogin && student.userId) {
+      const studentUser = await User.findById(student.userId);
       if (studentUser) {
         const newPassword = generateStudentPassword(
           student.name,
@@ -947,19 +964,15 @@ export const resetStudentPasswords = async (req, res) => {
         await studentUser.save();
 
         credentials.student = {
-          email: studentEmail,
+          email: studentUser.email,
           password: newPassword,
         };
       }
     }
 
     // Reset Parent Password
-    if (student.hasParentLogin && student.parentEmail) {
-      const parentUser = await User.findOne({
-        email: student.parentEmail.toLowerCase().trim(),
-        role: 'parent',
-      });
-
+    if (student.hasParentLogin && student.parentUserId) {
+      const parentUser = await User.findById(student.parentUserId);
       if (parentUser) {
         const newPassword = generateParentPassword(
           student.parentName,
@@ -969,7 +982,7 @@ export const resetStudentPasswords = async (req, res) => {
         await parentUser.save();
 
         credentials.parent = {
-          email: student.parentEmail.toLowerCase().trim(),
+          email: parentUser.email,
           password: newPassword,
         };
       }
