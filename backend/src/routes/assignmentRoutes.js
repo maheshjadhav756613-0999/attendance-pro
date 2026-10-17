@@ -8,23 +8,14 @@ import {
   getParentAssignments,
 } from '../controllers/assignmentController.js';
 import { protect, authorize } from '../middleware/auth.js';
-import upload from '../middleware/upload.js';
+import { uploadFiles } from '../middleware/upload.js';
 
 const router = express.Router();
 
 router.use(protect);
 
 // Teacher routes
-router.post(
-  '/',
-  authorize('teacher'),
-  (req, res, next) => {
-    req.uploadType = 'assignment';
-    next();
-  },
-  upload.array('attachments', 5),
-  createAssignment
-);
+router.post('/', authorize('teacher'), uploadFiles('attachments'), createAssignment);
 router.get('/teacher', authorize('teacher'), getTeacherAssignments);
 router.delete('/:id', authorize('teacher'), deleteAssignment);
 

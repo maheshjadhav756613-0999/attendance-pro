@@ -1,16 +1,26 @@
 import Submission from '../models/Submission.js';
 import Assignment from '../models/Assignment.js';
 import Student from '../models/Student.js';
-import User from '../models/User.js';
+import {
+  deleteStoredFiles,
+  signSubmissionFiles,
+  uploadRequestFiles,
+} from '../utils/assignmentFileUrls.js';
 
 // ============================================
 // @desc    Student — Assignment submit
 // @route   POST /api/submissions/:assignmentId
 // ============================================
 export const submitAssignment = async (req, res) => {
+  let files = [];
+  let submissionSaved = false;
   try {
     const { assignmentId } = req.params;
-    const { submissionType, physicalNote, studentRemark } = req.body;
+    const {
+      submissionType = 'Online',
+      physicalNote,
+      studentRemark,
+    } = req.body;
 
     // Student शोध
     const student = await Student.findOne({
@@ -31,6 +41,23 @@ export const submitAssignment = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Assignment सापडली नाही',
+      });
+    }
+
+    if (
+      student.classId?.toString() !== assignment.classId?.toString() ||
+      student.divisionName?.toUpperCase() !== assignment.divisionName?.toUpperCase()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'या assignment साठी submit करण्याची परवानगी नाही',
+      });
+    }
+
+    if (!['Online', 'Physical', 'Photo'].includes(submissionType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid submission type',
       });
     }
 
@@ -56,20 +83,32 @@ export const submitAssignment = async (req, res) => {
       });
     }
 
-    // Files
-    const files = (req.files || []).map((f) => ({
-      fileName: f.originalname,
-      fileUrl: `/uploads/submissions/${f.filename}`,
-      fileType: f.mimetype,
-      fileSize: f.size,
-    }));
+    if (submissionType === 'Online' && !(req.files || []).length) {
+      return res.status(400).json({
+        success: false,
+        message: 'कमीत कमी 1 file upload करा',
+      });
+    }
+    if (submissionType === 'Physical' && !physicalNote?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Physical submission ची note लिहा',
+      });
+    }
+
+    files = await uploadRequestFiles(
+      req.files || [],
+      assignment.schoolId,
+      assignment.classId,
+      `submissions/${assignment._id}/${student._id}`
+    );
 
     const submission = await Submission.create({
       assignmentId,
       studentId: student._id,
       classId: assignment.classId,
       divisionName: assignment.divisionName,
-      submissionType: submissionType || 'Online',
+      submissionType,
       files,
       physicalNote: physicalNote?.trim() || '',
       studentRemark: studentRemark?.trim() || '',
@@ -77,6 +116,7 @@ export const submitAssignment = async (req, res) => {
       isLate,
       status: 'Pending',
     });
+    submissionSaved = true;
 
     console.log(
       `📤 Submission: ${student.name} → ${assignment.title} (${submissionType})`
@@ -87,9 +127,16 @@ export const submitAssignment = async (req, res) => {
       message: isLate
         ? '⚠️ Late submission — Teacher approval लागेल'
         : '✅ Assignment submit झाली',
-      data: submission,
+      data: await signSubmissionFiles(submission),
     });
   } catch (error) {
+    if (!submissionSaved && files.length) {
+      try {
+        await deleteStoredFiles(files);
+      } catch (cleanupError) {
+        console.error('🔥 SUBMISSION FILE CLEANUP ERROR:', cleanupError);
+      }
+    }
     console.error('🔥 SUBMIT ASSIGNMENT ERROR:', error);
 
     if (error.code === 11000) {
@@ -99,7 +146,7 @@ export const submitAssignment = async (req, res) => {
       });
     }
 
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -133,7 +180,7 @@ export const getMySubmissions = async (req, res) => {
     res.status(200).json({
       success: true,
       count: submissions.length,
-      data: submissions,
+      data: await Promise.all(submissions.map(signSubmissionFiles)),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -175,7 +222,10 @@ export const getSubmissionDetail = async (req, res) => {
       });
     }
 
-    res.status(200).json({ success: true, data: submission });
+    res.status(200).json({
+      success: true,
+      data: await signSubmissionFiles(submission),
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -239,7 +289,7 @@ export const reviewSubmission = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `✅ Submission ${status === 'Approved' ? 'Approved' : 'Rejected'}`,
-      data: submission,
+      data: await signSubmissionFiles(submission),
     });
   } catch (error) {
     console.error('🔥 REVIEW SUBMISSION ERROR:', error);
@@ -300,7 +350,7 @@ export const getPendingSubmissions = async (req, res) => {
     res.status(200).json({
       success: true,
       count: submissions.length,
-      data: submissions,
+      data: await Promise.all(submissions.map(signSubmissionFiles)),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

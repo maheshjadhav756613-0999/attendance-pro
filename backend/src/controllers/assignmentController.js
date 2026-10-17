@@ -2,6 +2,12 @@ import Assignment from '../models/Assignment.js';
 import Submission from '../models/Submission.js';
 import User from '../models/User.js';
 import Student from '../models/Student.js';
+import {
+  deleteStoredFiles,
+  signAssignmentFiles,
+  signSubmissionFiles,
+  uploadRequestFiles,
+} from '../utils/assignmentFileUrls.js';
 
 // ============================================
 // HELPER: Teacher हा या class+division मध्ये आहे का?
@@ -22,6 +28,8 @@ const isTeacherOfClass = (teacher, classId, divisionName) => {
 // @route   POST /api/assignments
 // ============================================
 export const createAssignment = async (req, res) => {
+  let attachments = [];
+  let assignmentSaved = false;
   try {
     const teacher = await User.findById(req.user.id);
     const {
@@ -53,13 +61,12 @@ export const createAssignment = async (req, res) => {
       });
     }
 
-    // Files
-    const attachments = (req.files || []).map((f) => ({
-      fileName: f.originalname,
-      fileUrl: `/uploads/assignments/${f.filename}`,
-      fileType: f.mimetype,
-      fileSize: f.size,
-    }));
+    attachments = await uploadRequestFiles(
+      req.files || [],
+      schoolId,
+      classId,
+      'assignments'
+    );
 
     const assignment = await Assignment.create({
       teacherId: req.user.id,
@@ -77,6 +84,7 @@ export const createAssignment = async (req, res) => {
       submissionType: submissionType || 'Both',
       allowLateSubmission: allowLateSubmission === 'true' || allowLateSubmission === true,
     });
+    assignmentSaved = true;
 
     console.log(`📚 Assignment created: ${title}`);
 
@@ -88,11 +96,18 @@ export const createAssignment = async (req, res) => {
     res.status(201).json({
       success: true,
       message: '✅ Assignment create झाली',
-      data: populated,
+      data: await signAssignmentFiles(populated),
     });
   } catch (error) {
+    if (!assignmentSaved && attachments.length) {
+      try {
+        await deleteStoredFiles(attachments);
+      } catch (cleanupError) {
+        console.error('🔥 ASSIGNMENT FILE CLEANUP ERROR:', cleanupError);
+      }
+    }
     console.error('🔥 CREATE ASSIGNMENT ERROR:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -139,14 +154,14 @@ export const getTeacherAssignments = async (req, res) => {
           status: 'Pending',
         });
 
-        return {
+        return signAssignmentFiles({
           ...a.toObject(),
           totalStudents,
           submitted,
           notSubmitted: totalStudents - submitted,
           approved,
           pending,
-        };
+        });
       })
     );
 
@@ -191,8 +206,8 @@ export const getAssignmentDetail = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        assignment,
-        submissions,
+        assignment: await signAssignmentFiles(assignment),
+        submissions: await Promise.all(submissions.map(signSubmissionFiles)),
       },
     });
   } catch (error) {
@@ -273,7 +288,8 @@ export const getStudentAssignments = async (req, res) => {
 
         return {
           ...a.toObject(),
-          submission: submission || null,
+          attachments: (await signAssignmentFiles(a)).attachments,
+          submission: submission ? await signSubmissionFiles(submission) : null,
           submitted: !!submission,
           isOverdue,
         };
@@ -342,7 +358,8 @@ export const getParentAssignments = async (req, res) => {
 
         return {
           ...a.toObject(),
-          submission: submission || null,
+          attachments: (await signAssignmentFiles(a)).attachments,
+          submission: submission ? await signSubmissionFiles(submission) : null,
           submitted: !!submission,
           isOverdue,
         };

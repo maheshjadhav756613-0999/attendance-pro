@@ -8,7 +8,7 @@ import {
   getPendingSubmissions,
 } from '../controllers/submissionController.js';
 import { protect, authorize } from '../middleware/auth.js';
-import upload from '../middleware/upload.js';
+import { uploadFiles } from '../middleware/upload.js';
 
 const router = express.Router();
 
@@ -18,11 +18,7 @@ router.use(protect);
 router.post(
   '/:assignmentId',
   authorize('student'),
-  (req, res, next) => {
-    req.uploadType = 'submission';
-    next();
-  },
-  upload.array('files', 5),
+  uploadFiles('files'),
   submitAssignment
 );
 router.get('/my', authorize('student'), getMySubmissions);
